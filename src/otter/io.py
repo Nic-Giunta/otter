@@ -113,7 +113,7 @@ def read_sql(query: str, connection: Any) -> Any:
             raise DataSourceError("SQL query did not return a result set.")
         columns = [str(item[0]) for item in cursor.description]
         rows = cursor.fetchall()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise DataSourceError(f"Could not execute SQL query: {exc}.") from exc
     data: OrderedDict[str, list[Any]] = OrderedDict((name, []) for name in columns)
     for row in rows:

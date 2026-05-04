@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import datetime as _dt
 import operator
 from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -94,7 +95,7 @@ class Series:
         return self._boolean_binary(other, operator.or_)
 
     def __invert__(self) -> Series:
-        values = []
+        values: list[Any] = []
         for value in self._data:
             if is_null(value):
                 values.append(NULL)
@@ -258,37 +259,37 @@ class Series:
     def str_len(self) -> Series:
         """Return string lengths, preserving nulls."""
 
-        return self.apply(lambda value: len(str(value)))
+        return self.apply(lambda value: len(builtins.str(value)))
 
     def str_lower(self) -> Series:
         """Return lowercase strings."""
 
-        return self.apply(lambda value: str(value).lower())
+        return self.apply(lambda value: builtins.str(value).lower())
 
     def str_upper(self) -> Series:
         """Return uppercase strings."""
 
-        return self.apply(lambda value: str(value).upper())
+        return self.apply(lambda value: builtins.str(value).upper())
 
     def str_contains(self, pattern: str) -> Series:
         """Return whether each string contains *pattern*."""
 
-        return self.apply(lambda value: pattern in str(value)).cast(Boolean, strict=False)
+        return self.apply(lambda value: pattern in builtins.str(value)).cast(Boolean, strict=False)
 
     def str_startswith(self, prefix: str) -> Series:
         """Return whether each string starts with *prefix*."""
 
-        return self.apply(lambda value: str(value).startswith(prefix)).cast(Boolean, strict=False)
+        return self.apply(lambda value: builtins.str(value).startswith(prefix)).cast(Boolean, strict=False)
 
     def str_endswith(self, suffix: str) -> Series:
         """Return whether each string ends with *suffix*."""
 
-        return self.apply(lambda value: str(value).endswith(suffix)).cast(Boolean, strict=False)
+        return self.apply(lambda value: builtins.str(value).endswith(suffix)).cast(Boolean, strict=False)
 
     def str_replace(self, old: str, new: str) -> Series:
         """Return strings with *old* replaced by *new*."""
 
-        return self.apply(lambda value: str(value).replace(old, new))
+        return self.apply(lambda value: builtins.str(value).replace(old, new))
 
     def dt_year(self) -> Series:
         """Extract year from date-like values."""
@@ -331,17 +332,17 @@ class Series:
 
         return DatetimeNamespace(self)
 
-    def _binary(self, other: Any, symbol: str, func: Callable[[Any, Any], Any], *, reverse: bool = False) -> Series:
+    def _binary(self, other: Any, symbol: builtins.str, func: Callable[[Any, Any], Any], *, reverse: bool = False) -> Series:
         left, right = _align_binary(self, other, reverse=reverse)
         return Series([compute.apply_binary(a, b, func) for a, b in zip(left, right, strict=True)], name=self.name)
 
-    def _compare(self, other: Any, symbol: str, func: Callable[[Any, Any], Any]) -> Series:
+    def _compare(self, other: Any, symbol: builtins.str, func: Callable[[Any, Any], Any]) -> Series:
         left, right = _align_binary(self, other)
         return Series([compute.apply_comparison(a, b, func) for a, b in zip(left, right, strict=True)], name=self.name, dtype=Boolean)
 
     def _boolean_binary(self, other: Any, func: Callable[[bool, bool], bool]) -> Series:
         left, right = _align_binary(self, other)
-        out = []
+        out: list[Any] = []
         for a, b in zip(left, right, strict=True):
             if is_null(a) or is_null(b):
                 out.append(NULL)

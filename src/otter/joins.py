@@ -33,6 +33,7 @@ def join(left: Any, right: Any, *, on: str | Sequence[str] | None = None, how: s
         matched_left = _matched_left_positions(left, right, keys)
         keep = matched_left if how == "semi" else [idx for idx in range(left.height) if idx not in set(matched_left)]
         return left._take_positions(keep)
+    pairs: list[tuple[int | None, int | None]]
     if how == "cross":
         pairs = [(i, j) for i in range(left.height) for j in range(right.height)]
     else:

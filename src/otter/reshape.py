@@ -116,7 +116,7 @@ def stack(df: Any) -> Any:
 
     from .dataframe import DataFrame
 
-    out = {"row": [], "variable": [], "value": []}
+    out: dict[str, list[Any]] = {"row": [], "variable": [], "value": []}
     for row in range(df.height):
         for column in df.columns:
             out["row"].append(row)

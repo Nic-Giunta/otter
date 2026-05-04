@@ -69,6 +69,7 @@ from .series import Series
 from .testing import assert_frame_equal, assert_schema_equal, assert_series_equal
 
 __all__ = [
+    "NULL",
     "AggregationError",
     "BackendError",
     "Boolean",
@@ -100,7 +101,6 @@ __all__ = [
     "LazyExecutionError",
     "LazyFrame",
     "List",
-    "NULL",
     "Null",
     "NullValue",
     "NullValueError",

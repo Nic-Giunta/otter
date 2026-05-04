@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import operator
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, cast
+from collections.abc import Callable
 
 from .errors import ExpressionError
 from .series import Series
@@ -94,7 +95,7 @@ class Expr:
         if not isinstance(df, DataFrame):
             raise ExpressionError("Expressions can only be evaluated against an Otter DataFrame.")
         if self.kind == "col":
-            return df[str(self.value)]
+            return cast(Series, df[str(self.value)])
         if self.kind == "lit":
             return Series([self.value] * df.height, name=self.alias_name)
         if self.kind == "binary":

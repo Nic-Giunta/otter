@@ -280,7 +280,7 @@ class DataFrame:
             if fraction is None:
                 n = 1
             else:
-                n = int(round(self.height * fraction))
+                n = round(self.height * fraction)
         if n < 0 or n > self.height:
             raise ShapeError(f"Sample size must be between 0 and {self.height}.")
         rng = random.Random(seed)
@@ -348,7 +348,10 @@ class DataFrame:
         output_name = name or self._index.name or "index"
         if output_name in self.columns:
             raise DuplicateColumnError(f"Column {output_name!r} already exists.")
-        data = OrderedDict([(output_name, self._index.to_list()), *self._data.items()])
+        data: OrderedDict[str, Iterable[Any]] = OrderedDict()
+        data[output_name] = self._index.to_list()
+        for column_name, series in self._data.items():
+            data[column_name] = series
         return DataFrame(data)
 
     def set_index(self, column: str) -> DataFrame:
@@ -404,7 +407,7 @@ class DataFrame:
         return series.rename(name)
 
 
-def _normalize_input(data: Mapping[str, Iterable[Any]] | Sequence[Mapping[str, Any]]) -> OrderedDict[str, Iterable[Any]]:
+def _normalize_input(data: Mapping[str, Iterable[Any]] | Sequence[Mapping[str, Any]]) -> OrderedDict[str, list[Any] | Series]:
     if isinstance(data, Mapping):
         return OrderedDict((name, list(values) if not isinstance(values, Series) else values) for name, values in data.items())
     rows = list(data)

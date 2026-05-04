@@ -152,6 +152,6 @@ def safe_cast_column(values: Iterable[Any], caster: Callable[[Any], Any]) -> lis
     for value in values:
         try:
             result.append(caster(value))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise CastError(f"Value {value!r} could not be cast safely.") from exc
     return result
