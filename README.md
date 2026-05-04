@@ -1,12 +1,12 @@
 # Otter
 
-**Otter — A modern dataframe library for Python, built for clarity, correctness, performance, and extensibility.**
+**Otter - A modern dataframe library for Python, built for clarity, correctness, performance, and extensibility.**
 
 Otter is an independent open-source dataframe system. It provides a familiar column-oriented API, explicit copy semantics, a logical dtype system, consistent null handling, eager execution, lazy execution, expression planning, backend abstraction, standard-library I/O, optional interoperability, tests, documentation, examples, and benchmarks.
 
 ## Status
 
-Otter is production-oriented and designed as a serious dataframe library, but this repository is the initial public implementation. The pure Python backend prioritizes correctness, maintainability, and API design before native acceleration. Performance claims should be made only through reproducible benchmarks.
+Otter is production-oriented and designed as a serious dataframe library candidate, but this repository is still an alpha implementation. The pure Python backend prioritizes correctness, maintainability, and API design before native acceleration. Performance claims should be made only through reproducible benchmarks.
 
 ## Installation
 
@@ -76,6 +76,7 @@ df.assign(is_adult=df["age"] >= 18)
 df.drop("age")
 df.rename({"name": "person_name"})
 df.sort("age")
+df.sort("age", ascending=False, nulls_last=True)
 df.cast({"age": ot.Int64})
 df.fill_null(0)
 df.drop_nulls()
@@ -110,6 +111,8 @@ joined = left.join(right, on="id", how="left")
 ```python
 long = ot.DataFrame({"country": ["US", "US"], "year": [2023, 2024], "revenue": [10, 12]})
 wide = long.pivot(index="country", columns="year", values="revenue")
+stacked = long.stack()
+roundtrip = stacked.unstack()
 ```
 
 ## I/O example
@@ -165,6 +168,10 @@ Otter exposes logical dtypes such as `Int64`, `Float64`, `Boolean`, `String`, `D
 ## API overview
 
 The top-level API exports `DataFrame`, `Series`, `LazyFrame`, `Index`, `RangeIndex`, `Schema`, `Field`, all dtypes, null helpers, expression helpers, custom errors, I/O functions, optional interoperability functions, and public testing helpers.
+
+## Current limitations
+
+Otter is not yet a full Pandas replacement. The current backend is pure Python, dtype metadata is logical rather than backed by specialized memory layouts, indexes do not perform label alignment, time-series support is intentionally small, and lazy optimization is conservative. These limits are deliberate until the correctness suite and backend contracts are mature enough for acceleration.
 
 ## Compatibility philosophy
 

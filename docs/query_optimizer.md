@@ -14,7 +14,7 @@ The architecture allows future projection pushdown so only required columns are 
 
 ## Filter combination
 
-Adjacent expression filters are combined into a single logical AND expression.
+Adjacent expression filters are combined into a single ordered logical AND expression. The ordered form preserves Otter's filter behavior: rows rejected by an earlier predicate do not make later nulls invalid, while nulls in earlier predicates still raise the same filtering error as eager execution.
 
 ## Future predicate pushdown
 

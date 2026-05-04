@@ -2,7 +2,7 @@
 
 ## CSV
 
-CSV I/O uses Python's `csv` module. Readers require a header row, parse common scalar values, normalize null tokens, and raise `DataSourceError` for invalid files.
+CSV I/O uses Python's `csv` module. Readers require a header row, reject duplicate header names, parse common scalar values, normalize null tokens, and raise `DataSourceError` for invalid files.
 
 ## JSON
 

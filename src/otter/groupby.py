@@ -31,7 +31,11 @@ class GroupBy:
 
         from .dataframe import DataFrame
 
-        normalized: list[tuple[str, str]] = []
+        if not isinstance(aggregations, Mapping):
+            raise GroupByError(
+                f"agg() expects a mapping of column names to aggregation names, got {type(aggregations).__name__}."
+            )
+        normalized_specs: list[tuple[str, str]] = []
         for column, agg_spec in aggregations.items():
             if column not in self.df.columns:
                 from .errors import ColumnNotFoundError
@@ -44,24 +48,30 @@ class GroupBy:
                         f"Aggregation {spec!r} is not supported.\n\n"
                         "Suggested fix:\nUse one of: sum, mean, median, min, max, count, std, var."
                     )
-                normalized.append((column, spec))
+                normalized_specs.append((column, spec))
+        normalized: list[tuple[str, str, str]] = []
+        planned_names: set[str] = set(self.keys)
+        for column, spec in normalized_specs:
+            out_name = column if len(normalized_specs) == 1 and spec != "count" else f"{column}_{spec}"
+            if out_name in planned_names:
+                out_name = f"{out_name}_value"
+            while out_name in planned_names:
+                out_name = f"{out_name}_value"
+            planned_names.add(out_name)
+            normalized.append((column, spec, out_name))
         groups: OrderedDict[tuple[Any, ...], list[int]] = OrderedDict()
+        key_columns = [self.df._data[key] for key in self.keys]
         for row_idx in range(self.df.height):
-            key = tuple(self.df[key][row_idx] for key in self.keys)
+            key = tuple(column[row_idx] for column in key_columns)
             groups.setdefault(key, []).append(row_idx)
         out: OrderedDict[str, list[Any]] = OrderedDict((key, []) for key in self.keys)
-        for column, spec in normalized:
-            out_name = column if len(normalized) == 1 and spec != "count" else f"{column}_{spec}"
-            if out_name in out:
-                out_name = f"{out_name}_value"
+        for _, _, out_name in normalized:
             out[out_name] = []
         for key, positions in groups.items():
             for name, value in zip(self.keys, key, strict=True):
                 out[name].append(value)
-            for column, spec in normalized:
-                out_name = column if len(normalized) == 1 and spec != "count" else f"{column}_{spec}"
-                if out_name not in out:
-                    out_name = f"{out_name}_value"
-                values = [self.df[column][idx] for idx in positions]
+            for column, spec, out_name in normalized:
+                source = self.df._data[column]
+                values = [source[idx] for idx in positions]
                 out[out_name].append(aggregate(values, spec))
         return DataFrame(out)

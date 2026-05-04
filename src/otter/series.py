@@ -10,7 +10,7 @@ from typing import Any
 
 from . import compute
 from .dtypes import Boolean, DType, cast_values, infer_dtype
-from .errors import RowSelectionError, ShapeError
+from .errors import DTypeError, RowSelectionError, ShapeError
 from .nulls import NULL, is_null, materialize_null, normalize_null, not_null
 
 
@@ -18,9 +18,23 @@ class Series:
     """A one-dimensional ordered column with a logical dtype."""
 
     def __init__(self, values: Iterable[Any], *, name: str | None = None, dtype: DType | None = None) -> None:
-        self._data = [normalize_null(value) for value in values]
+        if name is not None and not isinstance(name, str):
+            raise DTypeError(
+                f"Series name must be a string or None, got {type(name).__name__}.\n\n"
+                "Suggested fix:\nPass name='column_name' or omit the name."
+            )
+        normalized = [normalize_null(value) for value in values]
+        self._data = cast_values(normalized, dtype) if dtype is not None else normalized
         self.name = name
         self.dtype = dtype or infer_dtype(self._data)
+
+    @classmethod
+    def _from_data(cls, values: Iterable[Any], *, name: str | None, dtype: DType) -> Series:
+        series = cls.__new__(cls)
+        series._data = [normalize_null(value) for value in values]
+        series.name = name
+        series.dtype = dtype
+        return series
 
     def __len__(self) -> int:
         return len(self._data)
@@ -34,8 +48,17 @@ class Series:
 
     def __getitem__(self, item: int | slice) -> Any | Series:
         if isinstance(item, slice):
-            return Series(self._data[item], name=self.name, dtype=self.dtype)
-        return self._data[item]
+            return Series._from_data(self._data[item], name=self.name, dtype=self.dtype)
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise RowSelectionError(
+                f"Series positions must be integers or slices, got {type(item).__name__}."
+            )
+        try:
+            return self._data[item]
+        except IndexError as exc:
+            raise RowSelectionError(
+                f"Series position {item} is out of bounds for length {len(self)}."
+            ) from exc
 
     def __eq__(self, other: object) -> Series:  # type: ignore[override]
         return self._compare(other, "==", operator.eq)
@@ -114,12 +137,16 @@ class Series:
     def copy(self) -> Series:
         """Return a copy of this series."""
 
-        return Series(self._data, name=self.name, dtype=self.dtype)
+        return Series._from_data(self._data, name=self.name, dtype=self.dtype)
 
     def rename(self, name: str | None) -> Series:
         """Return a copy with a new name."""
 
-        return Series(self._data, name=name, dtype=self.dtype)
+        if name is not None and not isinstance(name, str):
+            raise DTypeError(
+                f"Series name must be a string or None, got {type(name).__name__}."
+            )
+        return Series._from_data(self._data, name=name, dtype=self.dtype)
 
     def to_list(self, *, null_as_none: bool = False) -> list[Any]:
         """Return values as a list."""
@@ -128,10 +155,11 @@ class Series:
             return [materialize_null(value) for value in self._data]
         return list(self._data)
 
-    def to_dict(self) -> dict[int, Any]:
+    def to_dict(self, *, null_as_none: bool = False) -> dict[int, Any]:
         """Return a positional dictionary."""
 
-        return dict(enumerate(self._data))
+        values = self.to_list(null_as_none=null_as_none)
+        return dict(enumerate(values))
 
     def is_null(self) -> Series:
         """Return a boolean series indicating logical nulls."""
@@ -152,7 +180,7 @@ class Series:
     def drop_nulls(self) -> Series:
         """Return a series without null values."""
 
-        return Series([value for value in self._data if not_null(value)], name=self.name)
+        return Series._from_data([value for value in self._data if not_null(value)], name=self.name, dtype=self.dtype)
 
     def unique(self) -> Series:
         """Return unique values in first-seen order."""
@@ -161,7 +189,7 @@ class Series:
         for value in self._data:
             if not any(value == existing or (is_null(value) and is_null(existing)) for existing in seen):
                 seen.append(value)
-        return Series(seen, name=self.name)
+        return Series._from_data(seen, name=self.name, dtype=self.dtype)
 
     def value_counts(self) -> Any:
         """Return a dataframe with value counts for this series."""
@@ -183,10 +211,28 @@ class Series:
         value_name = self.name or "value"
         return DataFrame({value_name: keys, "count": counts})
 
-    def sort(self, *, reverse: bool = False) -> Series:
-        """Return a sorted series with nulls last."""
+    def sort(
+        self,
+        *,
+        reverse: bool = False,
+        ascending: bool | None = None,
+        nulls_last: bool = True,
+    ) -> Series:
+        """Return a sorted series with deterministic null placement."""
 
-        return Series(sorted(self._data, key=compute.sort_key, reverse=reverse), name=self.name, dtype=self.dtype)
+        if ascending is not None:
+            reverse = not ascending
+        null_values = [value for value in self._data if is_null(value)]
+        non_null_values = [value for value in self._data if not is_null(value)]
+        try:
+            sorted_values = sorted(non_null_values, reverse=reverse)
+        except TypeError as exc:
+            raise DTypeError(
+                "Series.sort() could not compare mixed values.\n\n"
+                "Suggested fix:\nCast values to a common dtype before sorting."
+            ) from exc
+        values = [*sorted_values, *null_values] if nulls_last else [*null_values, *sorted_values]
+        return Series._from_data(values, name=self.name, dtype=self.dtype)
 
     def cast(self, dtype: DType, *, strict: bool = True) -> Series:
         """Return values cast to *dtype*."""
@@ -209,7 +255,11 @@ class Series:
         """Return values selected by a boolean mask."""
 
         booleans = _validate_mask(mask, len(self))
-        return Series([value for value, keep in zip(self._data, booleans, strict=True) if keep], name=self.name, dtype=self.dtype)
+        return Series._from_data(
+            [value for value, keep in zip(self._data, booleans, strict=True) if keep],
+            name=self.name,
+            dtype=self.dtype,
+        )
 
     def sum(self, *, skip_nulls: bool = True) -> Any:
         """Return the sum of values."""
@@ -259,37 +309,37 @@ class Series:
     def str_len(self) -> Series:
         """Return string lengths, preserving nulls."""
 
-        return self.apply(lambda value: len(builtins.str(value)))
+        return self.apply(lambda value: len(_require_string(value)))
 
     def str_lower(self) -> Series:
         """Return lowercase strings."""
 
-        return self.apply(lambda value: builtins.str(value).lower())
+        return self.apply(lambda value: _require_string(value).lower())
 
     def str_upper(self) -> Series:
         """Return uppercase strings."""
 
-        return self.apply(lambda value: builtins.str(value).upper())
+        return self.apply(lambda value: _require_string(value).upper())
 
     def str_contains(self, pattern: str) -> Series:
         """Return whether each string contains *pattern*."""
 
-        return self.apply(lambda value: pattern in builtins.str(value)).cast(Boolean, strict=False)
+        return self.apply(lambda value: pattern in _require_string(value)).cast(Boolean, strict=False)
 
     def str_startswith(self, prefix: str) -> Series:
         """Return whether each string starts with *prefix*."""
 
-        return self.apply(lambda value: builtins.str(value).startswith(prefix)).cast(Boolean, strict=False)
+        return self.apply(lambda value: _require_string(value).startswith(prefix)).cast(Boolean, strict=False)
 
     def str_endswith(self, suffix: str) -> Series:
         """Return whether each string ends with *suffix*."""
 
-        return self.apply(lambda value: builtins.str(value).endswith(suffix)).cast(Boolean, strict=False)
+        return self.apply(lambda value: _require_string(value).endswith(suffix)).cast(Boolean, strict=False)
 
     def str_replace(self, old: str, new: str) -> Series:
         """Return strings with *old* replaced by *new*."""
 
-        return self.apply(lambda value: builtins.str(value).replace(old, new))
+        return self.apply(lambda value: _require_string(value).replace(old, new))
 
     def dt_year(self) -> Series:
         """Extract year from date-like values."""
@@ -306,19 +356,19 @@ class Series:
 
         return self.apply(lambda value: _require_temporal(value).day)
 
-    def rolling(self, window: int) -> Any:
+    def rolling(self, window: int, *, min_periods: int | None = None) -> Any:
         """Return a rolling window object."""
 
         from .window import Rolling
 
-        return Rolling(self, window)
+        return Rolling(self, window, min_periods=min_periods)
 
-    def expanding(self) -> Any:
+    def expanding(self, *, min_periods: int = 1) -> Any:
         """Return an expanding window object."""
 
         from .window import Expanding
 
-        return Expanding(self)
+        return Expanding(self, min_periods=min_periods)
 
     @property
     def str(self) -> StringNamespace:
@@ -433,4 +483,16 @@ def _validate_mask(mask: Series | Sequence[bool], expected_length: int) -> list[
 def _require_temporal(value: Any) -> _dt.date | _dt.datetime:
     if isinstance(value, (_dt.date, _dt.datetime)):
         return value
-    raise TypeError(f"Expected date or datetime value, got {type(value).__name__}.")
+    raise DTypeError(
+        f"Datetime helper expected date or datetime value, got {type(value).__name__}.\n\n"
+        "Suggested fix:\nCast the series to Date/Datetime or remove non-temporal values."
+    )
+
+
+def _require_string(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    raise DTypeError(
+        f"String helper expected str value, got {type(value).__name__}.\n\n"
+        "Suggested fix:\nCast the series to String with strict=False or remove non-string values."
+    )

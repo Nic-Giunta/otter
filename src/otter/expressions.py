@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import operator
 from dataclasses import dataclass
-from typing import Any, cast
 from collections.abc import Callable
+from typing import Any, cast
 
+from .dtypes import Boolean
 from .errors import ExpressionError
+from .nulls import NULL, is_null
 from .series import Series
 
 
@@ -85,6 +87,10 @@ class Expr:
     def alias(self, name: str) -> Expr:
         """Return this expression with an output alias."""
 
+        if not isinstance(name, str):
+            raise ExpressionError(
+                f"Expression alias must be a string, got {type(name).__name__}."
+            )
         return Expr(self.kind, self.value, self.left, self.right, self.func, alias_name=name)
 
     def evaluate(self, df: Any) -> Series:
@@ -161,6 +167,8 @@ _ARITH_METHODS = {
 def col(name: str) -> Expr:
     """Return a column expression."""
 
+    if not isinstance(name, str):
+        raise ExpressionError(f"Column expression name must be a string, got {type(name).__name__}.")
     return Expr("col", name)
 
 
@@ -170,32 +178,32 @@ def lit(value: Any) -> Expr:
     return Expr("lit", value)
 
 
-def and_(*expressions: Expr) -> Expr:
+def and_(*expressions: Any) -> Expr:
     """Combine boolean expressions with logical AND."""
 
     if not expressions:
         raise ExpressionError("and_() requires at least one expression.")
-    expr = expressions[0]
+    expr = _ensure_expr(expressions[0])
     for next_expr in expressions[1:]:
-        expr = Expr("boolean", "AND", expr, next_expr, lambda a, b: a & b)
+        expr = Expr("boolean", "AND", expr, _ensure_expr(next_expr), _and_series_ordered)
     return expr
 
 
-def or_(*expressions: Expr) -> Expr:
+def or_(*expressions: Any) -> Expr:
     """Combine boolean expressions with logical OR."""
 
     if not expressions:
         raise ExpressionError("or_() requires at least one expression.")
-    expr = expressions[0]
+    expr = _ensure_expr(expressions[0])
     for next_expr in expressions[1:]:
-        expr = Expr("boolean", "OR", expr, next_expr, lambda a, b: a | b)
+        expr = Expr("boolean", "OR", expr, _ensure_expr(next_expr), _or_series_ordered)
     return expr
 
 
-def not_(expression: Expr) -> Expr:
+def not_(expression: Any) -> Expr:
     """Negate a boolean expression."""
 
-    return Expr("not", "NOT", left=expression)
+    return Expr("not", "NOT", left=_ensure_expr(expression))
 
 
 def _ensure_expr(value: Any) -> Expr:
@@ -204,3 +212,52 @@ def _ensure_expr(value: Any) -> Expr:
 
 def _binary(left: Expr, right: Any, symbol: str, func: Callable[[Any, Any], Any]) -> Expr:
     return Expr("binary", symbol, left, _ensure_expr(right), func)
+
+
+def _require_boolean_or_null(value: Any, op: str, position: int) -> bool | None:
+    if is_null(value):
+        return None
+    if isinstance(value, bool):
+        return value
+    raise ExpressionError(
+        f"Boolean expression {op} expected bool or NULL at position {position}, "
+        f"got {type(value).__name__}."
+    )
+
+
+def _and_series_ordered(left: Series, right: Series) -> Series:
+    if len(left) != len(right):
+        from .errors import ShapeError
+
+        raise ShapeError("Boolean expression operands must have the same length.")
+    out: list[Any] = []
+    for position, (left_value, right_value) in enumerate(zip(left, right, strict=True)):
+        left_bool = _require_boolean_or_null(left_value, "AND", position)
+        if left_bool is None:
+            out.append(NULL)
+            continue
+        if left_bool is False:
+            out.append(False)
+            continue
+        right_bool = _require_boolean_or_null(right_value, "AND", position)
+        out.append(NULL if right_bool is None else right_bool)
+    return Series(out, dtype=Boolean)
+
+
+def _or_series_ordered(left: Series, right: Series) -> Series:
+    if len(left) != len(right):
+        from .errors import ShapeError
+
+        raise ShapeError("Boolean expression operands must have the same length.")
+    out: list[Any] = []
+    for position, (left_value, right_value) in enumerate(zip(left, right, strict=True)):
+        left_bool = _require_boolean_or_null(left_value, "OR", position)
+        if left_bool is True:
+            out.append(True)
+            continue
+        right_bool = _require_boolean_or_null(right_value, "OR", position)
+        if left_bool is None and right_bool is not True:
+            out.append(NULL)
+        else:
+            out.append(NULL if right_bool is None else right_bool)
+    return Series(out, dtype=Boolean)

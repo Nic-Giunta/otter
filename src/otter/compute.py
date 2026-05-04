@@ -5,6 +5,7 @@ from __future__ import annotations
 import operator
 import statistics
 from collections.abc import Callable, Iterable
+from decimal import Decimal
 from typing import Any
 
 from .dtypes import DType, Float64, Int64, is_numeric_dtype
@@ -67,6 +68,8 @@ def aggregate(values: Iterable[Any], op: str, *, skip_nulls: bool = True) -> Any
         return len(data)
     if not data:
         return NULL
+    if op in {"sum", "mean", "var", "std"}:
+        _require_numeric_values(data, op)
     if op == "sum":
         return sum(data)
     if op == "mean":
@@ -97,6 +100,7 @@ def quantile(values: Iterable[Any], q: float, *, skip_nulls: bool = True) -> Any
         return NULL
     if not data:
         return NULL
+    _require_numeric_values(data, "quantile")
     if len(data) == 1:
         return data[0]
     pos = (len(data) - 1) * q
@@ -155,3 +159,12 @@ def safe_cast_column(values: Iterable[Any], caster: Callable[[Any], Any]) -> lis
         except Exception as exc:
             raise CastError(f"Value {value!r} could not be cast safely.") from exc
     return result
+
+
+def _require_numeric_values(values: Iterable[Any], op: str) -> None:
+    for value in values:
+        if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+            raise AggregationError(
+                f"Aggregation {op!r} requires numeric values, got {type(value).__name__}.\n\n"
+                "Suggested fix:\nSelect a numeric column or cast values before aggregating."
+            )

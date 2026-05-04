@@ -1,8 +1,8 @@
 # Roadmap
 
-## Phase 1: complete core dataframe semantics
+## Phase 1: harden core dataframe semantics
 
-Strengthen DataFrame, Series, Schema, DType, NULL, errors, grouping, joins, reshaping, windows, I/O, and tests.
+Strengthen DataFrame, Series, Schema, DType, NULL, errors, grouping, joins, reshaping, windows, I/O, and tests. The current alpha covers these surfaces with pure-Python behavior, but additional compatibility and stress tests are still needed before a beta stability promise.
 
 ## Phase 2: practical data workflows
 

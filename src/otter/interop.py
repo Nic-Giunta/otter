@@ -24,7 +24,9 @@ def from_pandas(obj: Any) -> Any:
         raise InteropError("from_pandas() expects a pandas DataFrame.")
     from .dataframe import DataFrame
 
-    return DataFrame(OrderedDict((str(column), [normalize_null(value) for value in obj[column].tolist()]) for column in obj.columns))
+    names = [str(column) for column in obj.columns]
+    _validate_unique_names(names, "from_pandas()")
+    return DataFrame(OrderedDict((name, [normalize_null(value) for value in obj[column].tolist()]) for name, column in zip(names, obj.columns, strict=True)))
 
 
 def to_pandas(df: Any) -> Any:
@@ -54,6 +56,8 @@ def from_arrow(table: Any) -> Any:
         raise InteropError("from_arrow() expects a pyarrow.Table.")
     from .dataframe import DataFrame
 
+    names = [str(name) for name in table.column_names]
+    _validate_unique_names(names, "from_arrow()")
     return DataFrame([{str(key): normalize_null(value) for key, value in row.items()} for row in table.to_pylist()])
 
 
@@ -88,6 +92,9 @@ def from_numpy(array: Any, *, columns: Sequence[str] | None = None) -> Any:
     names = list(columns) if columns is not None else [f"column_{idx}" for idx in range(width)]
     if len(names) != width:
         raise InteropError(f"Expected {width} column names, got {len(names)}.")
+    if not all(isinstance(name, str) for name in names):
+        raise InteropError("from_numpy() column names must all be strings.")
+    _validate_unique_names(names, "from_numpy()")
     from .dataframe import DataFrame
 
     return DataFrame(OrderedDict((name, [normalize_null(value.item() if hasattr(value, "item") else value) for value in array[:, idx]]) for idx, name in enumerate(names)))
@@ -104,3 +111,12 @@ def to_numpy(df: Any) -> Any:
             "Suggested fix:\nInstall Otter with the 'numpy' extra."
         ) from exc
     return np.array([[row[column] for column in df.columns] for row in df.to_rows(null_as_none=True)], dtype=object)
+
+
+def _validate_unique_names(names: Sequence[str], operation: str) -> None:
+    if len(names) != len(set(names)):
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        raise InteropError(
+            f"{operation} would create duplicate Otter column names: {duplicates}.\n\n"
+            "Suggested fix:\nRename columns before converting."
+        )

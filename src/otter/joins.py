@@ -44,17 +44,17 @@ def join(left: Any, right: Any, *, on: str | Sequence[str] | None = None, how: s
     for left_idx, right_idx in pairs:
         for column in left.columns:
             if left_idx is None and column in keys and right_idx is not None:
-                out[column].append(right[column][right_idx])
+                out[column].append(right._data[column][right_idx])
             else:
-                out[column].append(NULL if left_idx is None else left[column][left_idx])
+                out[column].append(NULL if left_idx is None else left._data[column][left_idx])
         for column in right_output:
             name = column if column not in left.columns else f"{column}{suffix}"
-            out[name].append(NULL if right_idx is None else right[column][right_idx])
+            out[name].append(NULL if right_idx is None else right._data[column][right_idx])
     return DataFrame(out)
 
 
 def _key(df: Any, row: int, keys: Sequence[str]) -> tuple[Any, ...] | None:
-    values = tuple(df[key][row] for key in keys)
+    values = tuple(df._data[key][row] for key in keys)
     if any(is_null(value) for value in values):
         return None
     return values

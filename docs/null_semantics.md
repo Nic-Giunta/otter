@@ -22,11 +22,11 @@ Aggregations skip null values by default. Passing `skip_nulls=False` causes null
 
 ## Sorting
 
-Sorting places nulls last.
+Sorting places nulls last by default. `Series.sort()` and `DataFrame.sort()` also accept `nulls_last=False` for deterministic null-first ordering.
 
 ## GroupBy
 
-Null grouping keys are represented explicitly and retained as group keys.
+Null grouping keys are represented explicitly and retained as group keys. All `None` and `NaN` values normalize to the `NULL` singleton before grouping.
 
 ## Joins
 
