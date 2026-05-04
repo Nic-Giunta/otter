@@ -10,7 +10,7 @@ Integers infer as `Int64`. Mixed integers and floats infer as `Float64`. Boolean
 
 ## Casting rules
 
-Casting is explicit. Strict casting rejects unsafe or lossy conversions. Passing `strict=False` allows practical conversions such as strings to integers and floats.
+Casting is explicit. Strict casting rejects unsafe or lossy conversions. Passing `strict=False` allows documented practical conversions such as strings to integers, floats, booleans, dates, datetimes, and times. `CastError` messages identify the value, inferred source dtype, target dtype, strictness mode, reason, and a suggested fix.
 
 ## Nullability
 

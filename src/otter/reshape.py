@@ -26,7 +26,7 @@ def concat(frames: Sequence[Any]) -> Any:
     out: OrderedDict[str, list[Any]] = OrderedDict((column, []) for column in columns)
     for frame in frames:
         for column in columns:
-            out[column].extend(frame[column].to_list())
+            out[column].extend(frame._data[column].to_list())
     return DataFrame(out)
 
 
@@ -42,12 +42,12 @@ def pivot(df: Any, *, index: str, columns: str, values: str) -> Any:
     column_values: list[Any] = []
     cells: dict[tuple[Any, Any], Any] = {}
     for row in range(df.height):
-        idx_value = df[index][row]
-        col_value = df[columns][row]
+        idx_value = df._data[index][row]
+        col_value = df._data[columns][row]
         key = (idx_value, col_value)
         if key in cells:
             raise ReshapeError("pivot() found duplicate index/column pairs. Aggregate before pivoting.")
-        cells[key] = df[values][row]
+        cells[key] = df._data[values][row]
         if idx_value not in index_values:
             index_values.append(idx_value)
         if col_value not in column_values:
@@ -84,9 +84,9 @@ def melt(
     for row in range(df.height):
         for value_column in value_vars:
             for id_column in id_vars:
-                out[id_column].append(df[id_column][row])
+                out[id_column].append(df._data[id_column][row])
             out[var_name].append(value_column)
-            out[value_name].append(df[value_column][row])
+            out[value_name].append(df._data[value_column][row])
     return DataFrame(out)
 
 
@@ -99,7 +99,7 @@ def explode(df: Any, column: str) -> Any:
         raise ColumnNotFoundError(column, df.columns)
     out: OrderedDict[str, list[Any]] = OrderedDict((name, []) for name in df.columns)
     for row in range(df.height):
-        value = df[column][row]
+        value = df._data[column][row]
         items = [NULL] if is_null(value) else value
         if not isinstance(items, list):
             raise ReshapeError(f"Column {column!r} contains non-list value {value!r} at row {row}.")
@@ -107,7 +107,7 @@ def explode(df: Any, column: str) -> Any:
             items = [NULL]
         for item in items:
             for name in df.columns:
-                out[name].append(item if name == column else df[name][row])
+                out[name].append(item if name == column else df._data[name][row])
     return DataFrame(out)
 
 
@@ -121,7 +121,7 @@ def stack(df: Any) -> Any:
         for column in df.columns:
             out["row"].append(row)
             out["variable"].append(column)
-            out["value"].append(df[column][row])
+            out["value"].append(df._data[column][row])
     return DataFrame(out)
 
 

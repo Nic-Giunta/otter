@@ -64,6 +64,7 @@ from .interop import from_arrow, from_numpy, from_pandas
 from .io import read_csv, read_json, read_parquet, read_sql, write_csv, write_json, write_parquet
 from .lazy import LazyFrame
 from .nulls import NULL, NullValue, coalesce, is_null, normalize_null, not_null
+from .reshape import concat, explode, melt, pivot, stack, unstack
 from .schema import Field, Schema
 from .series import Series
 from .testing import assert_frame_equal, assert_schema_equal, assert_series_equal
@@ -131,6 +132,8 @@ __all__ = [
     "coalesce",
     "col",
     "common_supertype",
+    "concat",
+    "explode",
     "from_arrow",
     "from_numpy",
     "from_pandas",
@@ -140,14 +143,18 @@ __all__ = [
     "is_string_dtype",
     "is_temporal_dtype",
     "lit",
+    "melt",
     "normalize_null",
     "not_",
     "not_null",
     "or_",
+    "pivot",
     "read_csv",
     "read_json",
     "read_parquet",
     "read_sql",
+    "stack",
+    "unstack",
     "write_csv",
     "write_json",
     "write_parquet",

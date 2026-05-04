@@ -25,3 +25,8 @@ jobs:
         run: mypy src
       - name: Pytest
         run: pytest --cov=otter
+      - name: Examples
+        run: |
+          for example in examples/*.py; do
+            python "$example"
+          done

@@ -18,8 +18,8 @@
 
 ## stack
 
-`stack()` returns a simplified row/variable/value representation.
+`stack()` returns a simplified row/variable/value representation. It is available as both `ot.stack(df)` and `df.stack()`.
 
 ## unstack
 
-`unstack()` is the simplified inverse for data produced by `stack()`.
+`unstack()` is the simplified inverse for data produced by `stack()`. It is available as both `ot.unstack(df)` and `df.unstack()`.

@@ -25,8 +25,18 @@ def read_csv(path: str | Path) -> Any:
             reader = csv.DictReader(handle)
             if reader.fieldnames is None:
                 raise DataSourceError("CSV file does not contain a header row.")
+            if len(reader.fieldnames) != len(set(reader.fieldnames)):
+                raise DataSourceError(
+                    "CSV header contains duplicate column names.\n\n"
+                    "Suggested fix:\nRename duplicate columns before reading the file with Otter."
+                )
             data: OrderedDict[str, list[Any]] = OrderedDict((name, []) for name in reader.fieldnames)
             for row in reader:
+                if None in row:
+                    raise DataSourceError(
+                        "CSV row contains more fields than the header defines.\n\n"
+                        "Suggested fix:\nCheck quoting, delimiters, or the header row."
+                    )
                 for name in data:
                     data[name].append(_parse_text_value(row.get(name)))
     except OSError as exc:
@@ -54,7 +64,7 @@ def read_json(path: str | Path) -> Any:
 
     try:
         with Path(path).open(encoding="utf-8") as handle:
-            payload = json.load(handle)
+            payload = json.load(handle, object_pairs_hook=_json_object_no_duplicate_keys)
     except (OSError, json.JSONDecodeError) as exc:
         raise DataSourceError(f"Could not read JSON file {path!s}: {exc}.") from exc
     if not isinstance(payload, list) or not all(isinstance(row, dict) for row in payload):
@@ -149,3 +159,14 @@ def _parse_text_value(value: str | None) -> Any:
     except ValueError:
         pass
     return text
+
+
+def _json_object_no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    names = [name for name, _ in pairs]
+    if len(names) != len(set(names)):
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        raise DataSourceError(
+            f"JSON object contains duplicate keys: {duplicates}.\n\n"
+            "Suggested fix:\nRename duplicate keys before reading JSON with Otter."
+        )
+    return dict(pairs)

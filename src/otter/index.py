@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 from collections.abc import Iterable, Iterator
 from typing import Any
 
@@ -12,6 +13,8 @@ class Index:
     """Explicit row labels with no implicit alignment semantics."""
 
     def __init__(self, values: Iterable[Any], *, name: str | None = None) -> None:
+        if name is not None and not isinstance(name, str):
+            raise IndexError(f"Index name must be a string or None, got {type(name).__name__}.")
         self._values = list(values)
         self.name = name
 
@@ -21,8 +24,15 @@ class Index:
     def __iter__(self) -> Iterator[Any]:
         return iter(self._values)
 
-    def __getitem__(self, item: int | slice) -> Any:
-        return self._values[item]
+    def __getitem__(self, item: int | slice) -> Any | Index:
+        if isinstance(item, slice):
+            return Index(self._values[item], name=self.name)
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise IndexError(f"Index positions must be integers or slices, got {type(item).__name__}.")
+        try:
+            return self._values[item]
+        except builtins.IndexError as exc:
+            raise IndexError(f"Index position {item} is out of bounds for length {len(self)}.") from exc
 
     def __repr__(self) -> str:
         return f"Index({self._values!r}, name={self.name!r})"

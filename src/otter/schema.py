@@ -18,6 +18,21 @@ class Field:
     dtype: DType
     nullable: bool = True
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str):
+            raise SchemaError(
+                f"Field name must be a string, got {type(self.name).__name__}.\n\n"
+                "Suggested fix:\nUse explicit string column names."
+            )
+        if not isinstance(self.dtype, DType):
+            raise SchemaError(
+                f"Field {self.name!r} dtype must be an Otter DType, got {type(self.dtype).__name__}."
+            )
+        if not isinstance(self.nullable, bool):
+            raise SchemaError(
+                f"Field {self.name!r} nullable flag must be bool, got {type(self.nullable).__name__}."
+            )
+
 
 class Schema:
     """Ordered dataframe schema."""
@@ -87,3 +102,16 @@ class Schema:
             raise SchemaError(
                 f"Columns do not match schema. Expected {expected!r}, got {actual!r}."
             )
+
+    def validate_data(self, data: Mapping[str, list[object]]) -> None:
+        """Validate column-oriented data against this schema."""
+
+        self.validate_columns(data.keys())
+        for field in self:
+            values = data[field.name]
+            inferred = infer_dtype(values)
+            if inferred != field.dtype:
+                raise SchemaError(
+                    f"Column {field.name!r} has dtype {inferred}, but schema requires {field.dtype}.\n\n"
+                    "Suggested fix:\nCast the column explicitly or update the schema."
+                )

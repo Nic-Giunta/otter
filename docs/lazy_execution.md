@@ -18,7 +18,7 @@ A logical plan contains a source description and ordered operations.
 
 ## Optimizer passes
 
-Current passes remove no-op operations and combine adjacent expression filters with logical AND.
+Current passes remove no-op operations and combine adjacent expression filters with ordered logical AND when they are expression filters. The optimizer is intentionally conservative and must preserve eager semantics.
 
 ## Expression integration
 

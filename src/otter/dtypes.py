@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as _dt
 from dataclasses import dataclass
 from decimal import Decimal as _Decimal
+from collections.abc import Iterable
 from typing import Any
 
 from .errors import CastError
@@ -90,11 +91,11 @@ _INT_RANGES: dict[DType, tuple[int, int]] = {
 }
 
 
-def _non_null(values: list[Any] | tuple[Any, ...]) -> list[Any]:
+def _non_null(values: Iterable[Any]) -> list[Any]:
     return [normalize_null(value) for value in values if not is_null(value)]
 
 
-def infer_dtype(values: list[Any] | tuple[Any, ...]) -> DType:
+def infer_dtype(values: Iterable[Any]) -> DType:
     """Infer a conservative logical dtype for a sequence of values."""
 
     observed = _non_null(values)
@@ -172,6 +173,11 @@ def can_cast(from_dtype: DType, to_dtype: DType, *, strict: bool = True) -> bool
 def cast_value(value: Any, dtype: DType, *, strict: bool = True) -> Any:
     """Cast one value to *dtype*, preserving logical nulls."""
 
+    if not isinstance(dtype, DType):
+        raise CastError(
+            f"Target dtype must be an Otter DType, got {type(dtype).__name__}.\n\n"
+            "Suggested fix:\nUse a dtype object such as otter.Int64 or otter.String."
+        )
     value = normalize_null(value)
     if value is NULL:
         return NULL
@@ -245,12 +251,14 @@ def cast_value(value: Any, dtype: DType, *, strict: bool = True) -> Any:
             if isinstance(value, dict):
                 return value
             raise CastError(f"Value {value!r} cannot be cast to Struct.")
+    except CastError as exc:
+        raise _enrich_cast_error(value, dtype, strict, str(exc)) from exc
     except (ValueError, TypeError) as exc:
-        raise CastError(f"Value {value!r} cannot be cast to {dtype}.") from exc
-    raise CastError(f"Unsupported dtype {dtype!r}.")
+        raise _enrich_cast_error(value, dtype, strict, f"Underlying conversion failed: {exc}.") from exc
+    raise _enrich_cast_error(value, dtype, strict, f"Unsupported dtype {dtype!r}.")
 
 
-def cast_values(values: list[Any] | tuple[Any, ...], dtype: DType, *, strict: bool = True) -> list[Any]:
+def cast_values(values: Iterable[Any], dtype: DType, *, strict: bool = True) -> list[Any]:
     """Cast a sequence of values to *dtype*."""
 
     return [cast_value(value, dtype, strict=strict) for value in values]
@@ -294,3 +302,14 @@ def is_temporal_dtype(dtype: DType) -> bool:
     """Return True for temporal dtypes."""
 
     return dtype in _TEMPORAL_DTYPES
+
+
+def _enrich_cast_error(value: Any, dtype: DType, strict: bool, reason: str) -> CastError:
+    source_dtype = infer_dtype([value])
+    mode = "strict=True" if strict else "strict=False"
+    return CastError(
+        f"Cannot cast value {value!r} from inferred dtype {source_dtype} to target dtype {dtype} "
+        f"with {mode}.\n\nReason:\n{reason}\n\n"
+        "Suggested fix:\nClean or replace invalid values, choose a compatible dtype, or use "
+        "strict=False only when Otter documents the coercion you want."
+    )

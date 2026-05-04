@@ -8,7 +8,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from .dtypes import DType, is_numeric_dtype
-from .errors import ColumnNotFoundError, DuplicateColumnError, ShapeError
+from .errors import ColumnNotFoundError, DTypeError, DuplicateColumnError, SchemaError, ShapeError
 from .expressions import Expr
 from .index import Index, RangeIndex
 from .nulls import NULL, is_null, materialize_null, normalize_null
@@ -20,7 +20,7 @@ class DataFrame:
     """An ordered, immutable-by-default dataframe."""
 
     def __init__(self, data: Mapping[str, Iterable[Any]] | Sequence[Mapping[str, Any]], *, index: Index | None = None) -> None:
-        columns = _normalize_input(data)
+        columns, row_count_hint = _normalize_input(data)
         names = list(columns.keys())
         if len(names) != len(set(names)):
             raise DuplicateColumnError("Duplicate column names are not allowed.")
@@ -35,7 +35,9 @@ class DataFrame:
         for name, series in list(self._data.items()):
             if series.name != name:
                 self._data[name] = series.rename(name)
-        height = next(iter(lengths.values()), 0)
+        height = next(iter(lengths.values()), None)
+        if height is None:
+            height = row_count_hint if row_count_hint is not None else (len(index) if index is not None else 0)
         self._index = index.copy() if index is not None else RangeIndex(height)
         self._index.validate_length(height)
         self._schema = Schema(Field(name, series.dtype) for name, series in self._data.items())
@@ -64,7 +66,7 @@ class DataFrame:
         """Return the number of rows."""
 
         if not self._data:
-            return 0
+            return len(self._index)
         return len(next(iter(self._data.values())))
 
     @property
@@ -95,7 +97,7 @@ class DataFrame:
         """Return a dataframe with selected columns or evaluated expressions."""
 
         if not columns:
-            return DataFrame({})
+            return DataFrame({}, index=self._index)
         out: OrderedDict[str, Iterable[Any]] = OrderedDict()
         for item in columns:
             if isinstance(item, Expr):
@@ -105,6 +107,7 @@ class DataFrame:
                     raise DuplicateColumnError(f"Selection would create duplicate column {name!r}.")
                 out[name] = series.rename(name)
             else:
+                _validate_column_name(item)
                 self._require_column(item)
                 out[item] = self._data[item]
         return DataFrame(out, index=self._index)
@@ -119,7 +122,13 @@ class DataFrame:
     def rename(self, mapping: Mapping[str, str]) -> DataFrame:
         """Return a dataframe with renamed columns."""
 
+        if not isinstance(mapping, Mapping):
+            raise SchemaError(
+                f"rename() expects a mapping of old names to new names, got {type(mapping).__name__}."
+            )
         for source in mapping:
+            _validate_column_name(source)
+            _validate_column_name(mapping[source])
             self._require_column(source)
         names = [mapping.get(name, name) for name in self.columns]
         if len(names) != len(set(names)):
@@ -129,18 +138,27 @@ class DataFrame:
     def with_column(self, name: str, values: Series | Expr | Iterable[Any] | Any) -> DataFrame:
         """Return a dataframe with one added or replaced column."""
 
+        _validate_column_name(name)
         series = self._coerce_column(values, name)
         data = OrderedDict((column, value) for column, value in self._data.items())
         data[name] = series.rename(name)
-        return DataFrame(data, index=self._index)
+        return DataFrame(data, index=self._index_for_new_columns(data.values()))
 
     def with_columns(self, mapping: Mapping[str, Series | Expr | Iterable[Any] | Any]) -> DataFrame:
         """Return a dataframe with multiple added or replaced columns."""
 
-        result = self
+        if not isinstance(mapping, Mapping):
+            raise SchemaError(
+                f"with_columns() expects a mapping of names to values, got {type(mapping).__name__}."
+            )
+        coerced: OrderedDict[str, Series] = OrderedDict()
         for name, values in mapping.items():
-            result = result.with_column(name, values)
-        return result
+            _validate_column_name(name)
+            coerced[name] = self._coerce_column(values, name)
+        data = OrderedDict((column, value) for column, value in self._data.items())
+        for name, series in coerced.items():
+            data[name] = series.rename(name)
+        return DataFrame(data, index=self._index_for_new_columns(data.values()))
 
     def assign(self, **columns: Series | Expr | Iterable[Any] | Any) -> DataFrame:
         """Return a dataframe with keyword-assigned columns."""
@@ -161,13 +179,39 @@ class DataFrame:
 
         return self.filter(mask)
 
-    def sort(self, by: str | Sequence[str], *, reverse: bool = False) -> DataFrame:
+    def sort(
+        self,
+        by: str | Sequence[str],
+        *,
+        reverse: bool = False,
+        ascending: bool | None = None,
+        nulls_last: bool = True,
+    ) -> DataFrame:
         """Return rows sorted by one or more columns."""
 
+        if ascending is not None:
+            reverse = not ascending
         columns = [by] if isinstance(by, str) else list(by)
         for column in columns:
+            _validate_column_name(column)
             self._require_column(column)
-        positions = sorted(range(self.height), key=lambda idx: tuple(_sort_key(self._data[column][idx]) for column in columns), reverse=reverse)
+        null_positions = [
+            idx for idx in range(self.height) if any(is_null(self._data[column][idx]) for column in columns)
+        ]
+        null_position_set = set(null_positions)
+        value_positions = [idx for idx in range(self.height) if idx not in null_position_set]
+        try:
+            sorted_values = sorted(
+                value_positions,
+                key=lambda idx: tuple(self._data[column][idx] for column in columns),
+                reverse=reverse,
+            )
+        except TypeError as exc:
+            raise DTypeError(
+                f"sort() could not compare values in columns {columns!r}.\n\n"
+                "Suggested fix:\nCast mixed-type columns to a common dtype before sorting."
+            ) from exc
+        positions = [*sorted_values, *null_positions] if nulls_last else [*null_positions, *sorted_values]
         return self._take_positions(positions)
 
     def cast(self, mapping: Mapping[str, DType], *, strict: bool = True) -> DataFrame:
@@ -335,6 +379,20 @@ class DataFrame:
 
         return explode(self, column)
 
+    def stack(self) -> DataFrame:
+        """Stack columns into row, variable, and value columns."""
+
+        from .reshape import stack
+
+        return stack(self)
+
+    def unstack(self, *, row: str = "row", variable: str = "variable", value: str = "value") -> DataFrame:
+        """Unstack the simplified representation produced by stack()."""
+
+        from .reshape import unstack
+
+        return unstack(self, row=row, variable=variable, value=value)
+
     def lazy(self) -> Any:
         """Return a lazy dataframe wrapper."""
 
@@ -383,7 +441,7 @@ class DataFrame:
         return to_numpy(self)
 
     def _take_positions(self, positions: Sequence[int]) -> DataFrame:
-        data = OrderedDict((name, Series([series[position] for position in positions], name=name, dtype=series.dtype)) for name, series in self._data.items())
+        data = OrderedDict((name, Series._from_data([series[position] for position in positions], name=name, dtype=series.dtype)) for name, series in self._data.items())
         index = Index([self._index[position] for position in positions], name=self._index.name)
         return DataFrame(data, index=index)
 
@@ -401,27 +459,61 @@ class DataFrame:
         else:
             series = Series([values] * self.height, name=name)
         if len(series) != self.height:
+            if self.width == 0 and self.height == 0:
+                return series.rename(name)
             raise ShapeError(
                 f"Column {name!r} length {len(series)} does not match dataframe height {self.height}."
             )
         return series.rename(name)
 
+    def _index_for_new_columns(self, columns: Iterable[Series]) -> Index | None:
+        if self.width == 0 and self.height == 0 and any(len(column) > 0 for column in columns):
+            return None
+        return self._index
 
-def _normalize_input(data: Mapping[str, Iterable[Any]] | Sequence[Mapping[str, Any]]) -> OrderedDict[str, list[Any] | Series]:
+
+def _normalize_input(
+    data: Mapping[str, Iterable[Any]] | Sequence[Mapping[str, Any]],
+) -> tuple[OrderedDict[str, list[Any] | Series], int | None]:
     if isinstance(data, Mapping):
-        return OrderedDict((name, list(values) if not isinstance(values, Series) else values) for name, values in data.items())
+        columns: OrderedDict[str, list[Any] | Series] = OrderedDict()
+        for name, values in data.items():
+            _validate_column_name(name)
+            if isinstance(values, Series):
+                columns[name] = values
+                continue
+            if not _is_non_string_iterable(values):
+                raise ShapeError(
+                    f"Column {name!r} must be an iterable of values, got {type(values).__name__}.\n\n"
+                    "Suggested fix:\nWrap scalar values in a list or use DataFrame.assign() for broadcasting."
+                )
+            columns[name] = [normalize_null(value) for value in values]
+        return columns, None
+    if isinstance(data, (str, bytes)) or not isinstance(data, Sequence):
+        raise SchemaError(
+            f"DataFrame() expects a mapping of columns or a sequence of row mappings, got {type(data).__name__}."
+        )
     rows = list(data)
     names: list[str] = []
-    for row in rows:
+    for position, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            raise SchemaError(
+                f"Row {position} must be a mapping of column names to values, got {type(row).__name__}."
+            )
         for name in row:
+            _validate_column_name(name)
             if name not in names:
                 names.append(name)
-    return OrderedDict((name, [normalize_null(row.get(name, NULL)) for row in rows]) for name in names)
+    return OrderedDict((name, [normalize_null(row.get(name, NULL)) for row in rows]) for name in names), len(rows)
 
 
 def _is_non_string_iterable(value: Any) -> bool:
     return isinstance(value, Iterable) and not isinstance(value, (str, bytes, dict))
 
 
-def _sort_key(value: Any) -> tuple[int, Any]:
-    return (1, None) if is_null(value) else (0, value)
+def _validate_column_name(name: Any) -> None:
+    if not isinstance(name, str):
+        raise SchemaError(
+            f"Column names must be strings, got {type(name).__name__}.\n\n"
+            "Suggested fix:\nUse explicit string column names such as 'customer_id'."
+        )

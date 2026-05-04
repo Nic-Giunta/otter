@@ -10,7 +10,7 @@
 
 ## Positional row model
 
-Row operations are positional. Otter does not silently align by labels.
+Row operations are positional. Otter does not silently align by labels. Zero-column dataframes can still retain an explicit row count through their index, which keeps operations such as dropping all columns predictable.
 
 ## Differences from Pandas
 
